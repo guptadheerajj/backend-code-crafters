@@ -1,0 +1,773 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>CogniSense — Dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600&family=DM+Sans:wght@400;500&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #F7F6F2; --surface: #FFFFFF; --surface2: #F0EEE9;
+    --border: rgba(0,0,0,0.08); --border2: rgba(0,0,0,0.13);
+    --text1: #1A1916; --text2: #6B6960; --text3: #A8A59E;
+    --green: #3B6D11; --green-bg: #EAF3DE; --green-mid: #639922;
+    --amber: #854F0B; --amber-bg: #FAEEDA; --amber-mid: #BA7517;
+    --blue: #185FA5; --blue-bg: #E6F1FB; --blue-mid: #378ADD;
+    --red: #A32D2D; --red-bg: #FCEBEB; --red-mid: #E24B4A;
+    --sidebar-w: 220px; --header-h: 58px;
+  }
+  html, body { height: 100%; background: var(--bg); color: var(--text1); font-family: 'DM Sans', sans-serif; font-size: 14px; }
+
+  .app { display: flex; height: 100vh; overflow: hidden; }
+
+  .sidebar { width: var(--sidebar-w); flex-shrink: 0; background: var(--surface); border-right: 1px solid var(--border); display: flex; flex-direction: column; overflow-y: auto; }
+  .sidebar-brand { padding: 18px 20px 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 9px; }
+  .brand-icon { width: 28px; height: 28px; border-radius: 8px; background: var(--text1); display: flex; align-items: center; justify-content: center; }
+  .brand-title { font-family: 'Syne', sans-serif; font-size: 15px; font-weight: 600; color: var(--text1); letter-spacing: -0.02em; }
+  .sidebar-section { padding: 14px 12px 6px; }
+  .sidebar-section-label { font-size: 10px; font-weight: 500; color: var(--text3); letter-spacing: 0.08em; text-transform: uppercase; padding: 0 8px; margin-bottom: 4px; }
+  .nav-item { display: flex; align-items: center; gap: 9px; padding: 8px 10px; border-radius: 8px; cursor: pointer; transition: background 0.12s; color: var(--text2); font-size: 13px; font-weight: 400; margin-bottom: 1px; border: none; background: transparent; width: 100%; text-align: left; font-family: 'DM Sans', sans-serif; }
+  .nav-item:hover { background: var(--surface2); color: var(--text1); }
+  .nav-item.active { background: var(--text1); color: #fff; }
+  .nav-icon { width: 15px; height: 15px; opacity: 0.45; flex-shrink: 0; }
+  .nav-item.active .nav-icon { opacity: 0.85; }
+  .sidebar-footer { margin-top: auto; padding: 12px; border-top: 1px solid var(--border); }
+  .user-chip { display: flex; align-items: center; gap: 9px; padding: 8px 10px; border-radius: 8px; background: var(--surface2); }
+  .avatar { width: 26px; height: 26px; border-radius: 50%; background: var(--text1); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 500; font-family: 'Syne', sans-serif; flex-shrink: 0; }
+  .user-name { font-size: 12px; font-weight: 500; color: var(--text1); }
+  .user-sub  { font-size: 10px; color: var(--text3); }
+
+  .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+  .topbar { height: var(--header-h); border-bottom: 1px solid var(--border); background: var(--surface); display: flex; align-items: center; justify-content: space-between; padding: 0 28px; flex-shrink: 0; }
+  .topbar-title { font-family: 'Syne', sans-serif; font-size: 16px; font-weight: 600; color: var(--text1); letter-spacing: -0.02em; }
+  .topbar-sub { font-size: 11px; color: var(--text3); margin-top: 1px; }
+  .topbar-right { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
+  .session-select {
+    min-width: 200px; max-width: 280px; padding: 6px 10px; border-radius: 8px;
+    border: 1px solid var(--border); background: var(--surface); color: var(--text1);
+    font-family: 'DM Sans', sans-serif; font-size: 12px;
+  }
+  .range-tabs { display: flex; background: var(--surface2); border-radius: 8px; padding: 3px; gap: 2px; }
+  .range-tab { padding: 5px 11px; border-radius: 6px; font-size: 12px; font-weight: 500; color: var(--text2); cursor: pointer; border: none; background: transparent; transition: all 0.12s; font-family: 'DM Sans', sans-serif; }
+  .range-tab.active { background: var(--surface); color: var(--text1); box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+  .live-badge { display: flex; align-items: center; gap: 6px; padding: 5px 12px; border-radius: 20px; background: var(--green-bg); color: var(--green); font-size: 11px; font-weight: 500; }
+  .live-badge.stale { background: var(--surface2); color: var(--text3); }
+  .live-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green-mid); animation: pulse 1.8s ease-in-out infinite; }
+  .live-badge.stale .live-dot { background: var(--text3); animation: none; }
+  @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.5;transform:scale(0.7)} }
+
+  .content { flex: 1; overflow-y: auto; padding: 24px 28px; }
+  .content::-webkit-scrollbar { width: 4px; }
+  .content::-webkit-scrollbar-track { background: transparent; }
+  .content::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 4px; }
+
+  .metric-row { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 14px; margin-bottom: 20px; }
+  .metric-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; position: relative; overflow: hidden; animation: fadeUp 0.22s ease both; }
+  .metric-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; border-radius: 12px 12px 0 0; }
+  .mc-green::before { background: var(--green-mid); } .mc-amber::before { background: var(--amber-mid); }
+  .mc-blue::before  { background: var(--blue-mid);  } .mc-red::before   { background: var(--red-mid);   }
+  .metric-card:nth-child(1){animation-delay:.04s} .metric-card:nth-child(2){animation-delay:.08s}
+  .metric-card:nth-child(3){animation-delay:.12s} .metric-card:nth-child(4){animation-delay:.16s}
+  .metric-top { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 10px; }
+  .metric-label { font-size: 11px; color: var(--text3); font-weight: 500; letter-spacing: 0.04em; text-transform: uppercase; }
+  .metric-badge { font-size: 10px; font-weight: 500; padding: 2px 8px; border-radius: 10px; }
+  .mb-green { background: var(--green-bg); color: var(--green); } .mb-amber { background: var(--amber-bg); color: var(--amber); }
+  .mb-blue  { background: var(--blue-bg);  color: var(--blue);  } .mb-red   { background: var(--red-bg);   color: var(--red);   }
+  .metric-val  { font-family: 'Syne', sans-serif; font-size: 28px; font-weight: 600; color: var(--text1); letter-spacing: -0.04em; line-height: 1; }
+  .metric-unit { font-size: 12px; color: var(--text3); margin-top: 3px; }
+  .metric-change { font-size: 11px; margin-top: 8px; color: var(--text3); }
+  .up { color: var(--green-mid); } .down { color: var(--red-mid); }
+
+  .grid-2 { display: grid; grid-template-columns: minmax(0,1.6fr) minmax(0,1fr); gap: 14px; margin-bottom: 20px; }
+  .grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 14px; margin-bottom: 20px; }
+  .grid-half { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 20px; }
+
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 18px 20px; animation: fadeUp 0.22s ease both; }
+  @keyframes fadeUp { from{opacity:0;transform:translateY(7px)} to{opacity:1;transform:translateY(0)} }
+  .card-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 16px; }
+  .card-title { font-family: 'Syne', sans-serif; font-size: 14px; font-weight: 600; color: var(--text1); letter-spacing: -0.01em; }
+  .card-sub { font-size: 11px; color: var(--text3); margin-top: 2px; }
+  .card-action { font-size: 11px; color: var(--text3); cursor: pointer; border: 1px solid var(--border); border-radius: 6px; padding: 4px 10px; background: transparent; font-family: 'DM Sans', sans-serif; transition: background 0.12s; flex-shrink: 0; margin-top: 2px; }
+  .card-action:hover { background: var(--surface2); }
+
+  .state-timeline { display: flex; gap: 3px; height: 30px; align-items: stretch; }
+  .tl-seg { border-radius: 3px; cursor: pointer; transition: opacity 0.15s; min-width: 4px; }
+  .tl-seg:hover { opacity: 0.7; }
+  .tl-focus { background: #C0DD97; } .tl-fatigue { background: #FAC775; }
+  .tl-confused { background: #B5D4F4; } .tl-idle { background: var(--surface2); }
+  .tl-legend { display: flex; gap: 14px; margin-top: 10px; flex-wrap: wrap; }
+  .tl-leg-item { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--text2); }
+  .tl-dot { width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0; }
+
+  .state-dist { display: flex; flex-direction: column; gap: 10px; }
+  .dist-row { display: flex; flex-direction: column; gap: 4px; }
+  .dist-top { display: flex; justify-content: space-between; font-size: 12px; }
+  .dist-lbl { color: var(--text2); font-weight: 500; } .dist-pct { color: var(--text3); font-family: 'DM Mono', monospace; font-size: 11px; }
+  .dist-bar-bg { height: 6px; background: var(--surface2); border-radius: 99px; overflow: hidden; }
+  .dist-bar-fill { height: 100%; border-radius: 99px; transition: width 0.6s ease; }
+
+  .session-table { width: 100%; border-collapse: collapse; }
+  .session-table th { font-size: 10px; font-weight: 500; color: var(--text3); text-transform: uppercase; letter-spacing: 0.06em; padding: 0 0 10px; text-align: left; border-bottom: 1px solid var(--border); }
+  .session-table td { padding: 11px 0; font-size: 12px; color: var(--text2); border-bottom: 1px solid var(--border); vertical-align: middle; }
+  .session-table tr:last-child td { border-bottom: none; }
+  .session-table td:first-child { color: var(--text1); font-weight: 500; }
+  .score-pill { display: inline-block; padding: 2px 9px; border-radius: 10px; font-size: 11px; font-weight: 500; }
+
+  .prod-big { text-align: center; padding: 6px 0 14px; }
+  .prod-num { font-family: 'Syne', sans-serif; font-size: 48px; font-weight: 600; color: var(--text1); letter-spacing: -0.04em; line-height: 1; }
+  .prod-label { font-size: 12px; color: var(--text3); margin-top: 4px; }
+  .prod-ring { position: relative; width: 96px; height: 96px; margin: 0 auto 8px; }
+  .prod-ring svg { transform: rotate(-90deg); }
+  .ring-bg   { fill: none; stroke: var(--surface2); stroke-width: 8; }
+  .ring-fill { fill: none; stroke: var(--green-mid); stroke-width: 8; stroke-linecap: round; stroke-dasharray: 283; transition: stroke-dashoffset 1s ease; }
+
+  .insight-row { display: flex; flex-direction: column; gap: 7px; margin-top: 4px; }
+  .insight-item { display: flex; align-items: flex-start; gap: 9px; padding: 9px 11px; border-radius: 8px; background: var(--surface2); }
+  .insight-dot { width: 6px; height: 6px; border-radius: 50%; margin-top: 5px; flex-shrink: 0; }
+  .insight-text { font-size: 12px; color: var(--text2); line-height: 1.5; }
+  .insight-text strong { color: var(--text1); font-weight: 500; }
+
+  .chart-wrap { position: relative; height: 175px; }
+
+  .banner-err { background: var(--red-bg); color: var(--red); padding: 10px 14px; border-radius: 8px; margin-bottom: 16px; font-size: 13px; }
+  .banner-info { background: var(--blue-bg); color: var(--blue); padding: 10px 14px; border-radius: 8px; margin-bottom: 16px; font-size: 13px; }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="sidebar-brand">
+      <div class="brand-icon">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+          <circle cx="7" cy="7" r="2.5" fill="white"/>
+          <path d="M7 1.5C9.5 3.5 10.5 5 10.5 7s-1.5 4-3.5 5.5" stroke="white" stroke-width="1.2" stroke-linecap="round" fill="none"/>
+          <path d="M7 1.5C4.5 3.5 3.5 5 3.5 7s1.5 4 3.5 5.5" stroke="white" stroke-width="1.2" stroke-linecap="round" fill="none"/>
+        </svg>
+      </div>
+      <span class="brand-title">CogniSense</span>
+    </div>
+    <div class="sidebar-section">
+      <div class="sidebar-section-label">Main</div>
+      <button class="nav-item active" type="button" onclick="setPage('overview',this)">
+        <svg class="nav-icon" viewBox="0 0 16 16" fill="currentColor"><rect x="1" y="1" width="6" height="6" rx="1.5"/><rect x="9" y="1" width="6" height="6" rx="1.5"/><rect x="1" y="9" width="6" height="6" rx="1.5"/><rect x="9" y="9" width="6" height="6" rx="1.5"/></svg>
+        Overview
+      </button>
+      <button class="nav-item" type="button" onclick="setPage('vitals',this)">
+        <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><polyline points="1,8 4,4 6,10 8,6 10,9 12,5 15,8"/></svg>
+        Vitals
+      </button>
+      <button class="nav-item" type="button" onclick="setPage('sessions',this)">
+        <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2" y="3" width="12" height="11" rx="1.5"/><line x1="5" y1="1" x2="5" y2="5"/><line x1="11" y1="1" x2="11" y2="5"/><line x1="2" y1="7" x2="14" y2="7"/></svg>
+        Sessions
+      </button>
+      <button class="nav-item" type="button" onclick="setPage('insights',this)">
+        <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M8 2a6 6 0 1 0 0 12A6 6 0 0 0 8 2z"/><line x1="8" y1="5" x2="8" y2="8.5"/><circle cx="8" cy="11" r="0.6" fill="currentColor"/></svg>
+        Insights
+      </button>
+    </div>
+    <div class="sidebar-section">
+      <div class="sidebar-section-label">Account</div>
+      <button type="button" class="nav-item"><svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="8" cy="5.5" r="2.5"/><path d="M2.5 13.5c0-3 2.5-5 5.5-5s5.5 2 5.5 5"/></svg>Profile</button>
+      <button type="button" class="nav-item"><svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="8" cy="8" r="2"/><path d="M8 1v2M8 13v2M1 8h2M13 8h2M3.05 3.05l1.41 1.41M11.54 11.54l1.41 1.41M3.05 12.95l1.41-1.41M11.54 4.46l1.41-1.41"/></svg>Settings</button>
+    </div>
+    <div class="sidebar-footer">
+      <div class="user-chip">
+        <div class="avatar">CS</div>
+        <div>
+          <div class="user-name">Cognitive State</div>
+          <div class="user-sub">Live API</div>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <div class="main">
+    <div class="topbar">
+      <div>
+        <div class="topbar-title" id="pageTitle">Overview</div>
+        <div class="topbar-sub" id="topbarSub">Loading…</div>
+      </div>
+      <div class="topbar-right">
+        <select id="sessionSelect" class="session-select" title="Backend session">
+          <option value="">No sessions — start the extension</option>
+        </select>
+        <div class="range-tabs">
+          <button type="button" class="range-tab active" data-range="today" onclick="setRange(this)">Today</button>
+          <button type="button" class="range-tab" data-range="week" onclick="setRange(this)">Week</button>
+          <button type="button" class="range-tab" data-range="month" onclick="setRange(this)">Month</button>
+        </div>
+        <div class="live-badge" id="liveBadge"><div class="live-dot"></div><span id="liveBadgeText">Live</span></div>
+      </div>
+    </div>
+    <div class="content" id="pageContent"></div>
+  </div>
+</div>
+
+<script>
+const dashState = {
+  range: 'today',
+  sessionId: null,
+  sessions: [],
+  dashboard: null,
+  error: null,
+  fetchError: null,
+};
+let charts = {};
+let currentPage = 'overview';
+
+function destroyCharts() {
+  Object.values(charts).forEach((c) => { try { c.destroy(); } catch (e) {} });
+  charts = {};
+}
+
+async function fetchJson(url) {
+  const r = await fetch(url);
+  const text = await r.text();
+  if (!r.ok) throw new Error(text || r.statusText);
+  if (!text) return null;
+  try { return JSON.parse(text); } catch (e) { throw new Error('Invalid JSON'); }
+}
+
+function stressDisplay(si) {
+  if (si == null) return null;
+  const x = Number(si);
+  if (Number.isNaN(x)) return null;
+  return x <= 1.5 ? Math.round(x * 100) : Math.round(x);
+}
+
+function lastNonNull(arr, key) {
+  for (let i = arr.length - 1; i >= 0; i--) {
+    const v = arr[i][key];
+    if (v != null && v !== '') return Number(v);
+  }
+  return null;
+}
+
+function avgKey(arr, key) {
+  const xs = arr.map((p) => p[key]).filter((v) => v != null && !Number.isNaN(Number(v))).map(Number);
+  if (!xs.length) return null;
+  return xs.reduce((a, b) => a + b, 0) / xs.length;
+}
+
+function stateDistribution(points) {
+  const c = { focus: 0, fatigue: 0, confused: 0, idle: 0 };
+  for (const p of points) {
+    const k = String(p.state_label || 'idle').toLowerCase();
+    if (k === 'focus') c.focus++;
+    else if (k === 'fatigue') c.fatigue++;
+    else if (k === 'confused') c.confused++;
+    else c.idle++;
+  }
+  const t = Math.max(points.length, 1);
+  return {
+    focus: Math.round((c.focus / t) * 100),
+    fatigue: Math.round((c.fatigue / t) * 100),
+    confused: Math.round((c.confused / t) * 100),
+  };
+}
+
+function tlClass(label) {
+  const t = String(label || 'idle').toLowerCase();
+  if (t === 'focus') return 'focus';
+  if (t === 'fatigue') return 'fatigue';
+  if (t === 'confused') return 'confused';
+  return 'idle';
+}
+
+function rangeToFromTo(range) {
+  const now = new Date();
+  const to = now.toISOString();
+  const from = new Date(now);
+  if (range === 'today') from.setHours(0, 0, 0, 0);
+  else if (range === 'week') from.setDate(from.getDate() - 7);
+  else from.setDate(from.getDate() - 30);
+  return { from: from.toISOString(), to };
+}
+
+function fmtShortDate(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
+function sessionDurationLabel(startedAt, lastTs) {
+  if (!startedAt) return '—';
+  const a = new Date(startedAt).getTime();
+  const b = lastTs ? new Date(lastTs).getTime() : Date.now();
+  const m = Math.max(0, Math.floor((b - a) / 60000));
+  const h = Math.floor(m / 60);
+  const mm = m % 60;
+  if (h) return h + 'h ' + mm + 'm';
+  return mm + 'm';
+}
+
+function sc(s) {
+  if (s == null) return { bg: '#F0EEE9', c: '#6B6960' };
+  if (s >= 80) return { bg: '#EAF3DE', c: '#3B6D11' };
+  if (s >= 65) return { bg: '#FAEEDA', c: '#854F0B' };
+  return { bg: '#FCEBEB', c: '#A32D2D' };
+}
+
+function cd() {
+  return {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        backgroundColor: '#1A1916',
+        titleColor: '#F7F6F2',
+        bodyColor: '#A8A59E',
+        padding: 10,
+        cornerRadius: 8,
+        titleFont: { family: 'DM Mono', size: 11 },
+        bodyFont: { family: 'DM Sans', size: 12 },
+      },
+    },
+    scales: {
+      x: { grid: { color: 'rgba(0,0,0,0.04)' }, ticks: { color: '#A8A59E', font: { family: 'DM Mono', size: 10 } }, border: { display: false } },
+      y: { grid: { color: 'rgba(0,0,0,0.04)' }, ticks: { color: '#A8A59E', font: { family: 'DM Mono', size: 10 } }, border: { display: false } },
+    },
+  };
+}
+
+function updateTopMeta() {
+  const sub = document.getElementById('topbarSub');
+  const live = document.getElementById('liveBadge');
+  const liveTxt = document.getElementById('liveBadgeText');
+  sub.textContent = new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+  const pts = dashState.dashboard?.points || [];
+  const lastIso = pts.length ? pts[pts.length - 1].timestamp : null;
+  if (!lastIso) {
+    live.classList.add('stale');
+    liveTxt.textContent = 'No data';
+    return;
+  }
+  const ageMin = (Date.now() - new Date(lastIso).getTime()) / 60000;
+  if (ageMin > 5) {
+    live.classList.add('stale');
+    liveTxt.textContent = 'Idle';
+  } else {
+    live.classList.remove('stale');
+    liveTxt.textContent = 'Live';
+  }
+}
+
+function populateSessionSelect() {
+  const sel = document.getElementById('sessionSelect');
+  sel.innerHTML = '';
+  if (!dashState.sessions.length) {
+    const o = document.createElement('option');
+    o.value = '';
+    o.textContent = 'No sessions — start the extension';
+    sel.appendChild(o);
+    return;
+  }
+  for (const s of dashState.sessions) {
+    const o = document.createElement('option');
+    o.value = s.id;
+    const bu = s.metrics_summary?.bucket_count ?? 0;
+    o.textContent = fmtShortDate(s.started_at) + ' · ' + bu + ' buckets';
+    sel.appendChild(o);
+  }
+}
+
+async function loadSessions() {
+  const data = await fetchJson('/api/v1/sessions?limit=100');
+  dashState.sessions = data.sessions || [];
+  populateSessionSelect();
+  const sel = document.getElementById('sessionSelect');
+  const params = new URLSearchParams(location.search);
+  const pref = params.get('session') || localStorage.getItem('cogni_session_id');
+  if (pref && dashState.sessions.some((s) => s.id === pref)) dashState.sessionId = pref;
+  else if (dashState.sessions[0]) dashState.sessionId = dashState.sessions[0].id;
+  if (dashState.sessionId) {
+    sel.value = dashState.sessionId;
+    localStorage.setItem('cogni_session_id', dashState.sessionId);
+  }
+}
+
+async function loadDashboard() {
+  dashState.fetchError = null;
+  if (!dashState.sessionId) {
+    dashState.dashboard = null;
+    return;
+  }
+  const { from, to } = rangeToFromTo(dashState.range);
+  const q = new URLSearchParams({ from, to, limit: '5000' });
+  try {
+    dashState.dashboard = await fetchJson('/api/v1/dashboard/' + dashState.sessionId + '?' + q);
+  } catch (e) {
+    dashState.fetchError = e.message || String(e);
+    dashState.dashboard = null;
+  }
+}
+
+function renderBanners() {
+  let h = '';
+  if (dashState.error) h += '<div class="banner-err">' + esc(dashState.error) + '</div>';
+  if (dashState.fetchError) h += '<div class="banner-err">Could not load dashboard: ' + esc(dashState.fetchError) + '</div>';
+  if (!dashState.sessionId && !dashState.fetchError) h += '<div class="banner-info">No session yet. Start monitoring from the Chrome extension (POST /api/v1/sessions), then refresh this page.</div>';
+  return h;
+}
+
+function esc(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+function renderOverview() {
+  const pts = dashState.dashboard?.points || [];
+  const dist = stateDistribution(pts);
+  const lastHr = lastNonNull(pts, 'avg_heart_rate');
+  const lastHrv = lastNonNull(pts, 'avg_hrv');
+  const lastSpo2 = lastNonNull(pts, 'avg_spo2');
+  const stressSeries = pts.map((p) => stressDisplay(p.stress_index)).filter((x) => x != null);
+  const lastStress = stressSeries.length ? stressSeries[stressSeries.length - 1] : null;
+  const prod = lastNonNull(pts, 'productivity_score');
+  const started = dashState.dashboard?.session?.started_at;
+  const lastTs = pts.length ? pts[pts.length - 1].timestamp : null;
+  const dur = sessionDurationLabel(started, lastTs);
+
+  const hrShow = lastHr != null ? Math.round(lastHr) : '—';
+  const hrvShow = lastHrv != null ? Math.round(lastHrv) : '—';
+  const spoShow = lastSpo2 != null ? Math.round(lastSpo2) : '—';
+  const stShow = lastStress != null ? lastStress : '—';
+  const prodShow = prod != null ? Math.round(prod) : '—';
+
+  const tl = pts.length
+    ? pts.map((p) => '<div class="tl-seg tl-' + tlClass(p.state_label) + '" style="flex:1" title="' + esc(String(p.state_label || '')) + ' @ ' + esc(fmtShortDate(p.timestamp)) + '"></div>').join('')
+    : '<div class="metric-change">No minute buckets in this time range.</div>';
+
+  return (
+    renderBanners() +
+    '<div class="metric-row">' +
+    '  <div class="metric-card mc-green"><div class="metric-top"><span class="metric-label">Heart Rate</span><span class="metric-badge mb-green">Latest</span></div><div class="metric-val">' + hrShow + '</div><div class="metric-unit">bpm (from metrics)</div><div class="metric-change"><span style="color:var(--text3)">Extension rarely sends vitals</span></div></div>' +
+    '  <div class="metric-card mc-blue"><div class="metric-top"><span class="metric-label">HRV</span><span class="metric-badge mb-blue">Latest</span></div><div class="metric-val">' + hrvShow + '</div><div class="metric-unit">ms RMSSD</div><div class="metric-change"></div></div>' +
+    '  <div class="metric-card mc-green"><div class="metric-top"><span class="metric-label">SpO₂</span><span class="metric-badge mb-green">Latest</span></div><div class="metric-val">' + spoShow + '</div><div class="metric-unit">% oxygen sat.</div><div class="metric-change"></div></div>' +
+    '  <div class="metric-card mc-amber"><div class="metric-top"><span class="metric-label">Stress (scaled)</span><span class="metric-badge mb-amber">Index</span></div><div class="metric-val">' + stShow + '</div><div class="metric-unit">~0–100 if model uses 0–1</div><div class="metric-change"></div></div>' +
+    '</div>' +
+    '<div class="grid-2">' +
+    '  <div class="card"><div class="card-header"><div><div class="card-title">Cognitive state</div><div class="card-sub">' + esc(dur) + ' elapsed · ' + pts.length + ' buckets</div></div></div>' +
+    '    <div class="state-timeline" id="timeline">' + tl + '</div>' +
+    '    <div class="tl-legend"><div class="tl-leg-item"><div class="tl-dot" style="background:#C0DD97"></div>Focus</div><div class="tl-leg-item"><div class="tl-dot" style="background:#FAC775"></div>Fatigue</div><div class="tl-leg-item"><div class="tl-dot" style="background:#B5D4F4"></div>Confused</div><div class="tl-leg-item"><div class="tl-dot" style="background:var(--surface2)"></div>Idle</div></div>' +
+    '  </div>' +
+    '  <div class="card"><div class="card-header"><div><div class="card-title">State distribution</div><div class="card-sub">In range</div></div></div>' +
+    '    <div class="state-dist">' +
+    '      <div class="dist-row"><div class="dist-top"><span class="dist-lbl">Focus</span><span class="dist-pct">' + dist.focus + '%</span></div><div class="dist-bar-bg"><div class="dist-bar-fill" style="width:' + dist.focus + '%;background:#97C459"></div></div></div>' +
+    '      <div class="dist-row"><div class="dist-top"><span class="dist-lbl">Fatigue</span><span class="dist-pct">' + dist.fatigue + '%</span></div><div class="dist-bar-bg"><div class="dist-bar-fill" style="width:' + dist.fatigue + '%;background:#EF9F27"></div></div></div>' +
+    '      <div class="dist-row"><div class="dist-top"><span class="dist-lbl">Confused</span><span class="dist-pct">' + dist.confused + '%</span></div><div class="dist-bar-bg"><div class="dist-bar-fill" style="width:' + dist.confused + '%;background:#85B7EB"></div></div></div>' +
+    '    </div>' +
+    '  </div>' +
+    '</div>' +
+    '<div class="grid-2">' +
+    '  <div class="card"><div class="card-header"><div><div class="card-title">HR &amp; stress</div><div class="card-sub">Per bucket</div></div></div><div class="chart-wrap"><canvas id="vitalsChart"></canvas></div></div>' +
+    '  <div class="card"><div class="card-header"><div><div class="card-title">Productivity score</div><div class="card-sub">Latest bucket</div></div></div>' +
+    '    <div class="prod-big"><div class="prod-ring"><svg viewBox="0 0 100 100" width="96" height="96"><circle class="ring-bg" cx="50" cy="50" r="45"/><circle class="ring-fill" id="prodRing" cx="50" cy="50" r="45" stroke-dashoffset="283"/></svg></div>' +
+    '    <div class="prod-num">' + prodShow + '</div><div class="prod-label">out of 100</div></div>' +
+    '    <div class="insight-row"><div class="insight-item"><div class="insight-dot" style="background:var(--green-mid)"></div><div class="insight-text">Data from <strong>/api/v1/dashboard</strong> · model: <strong>' + esc(String(pts.length && pts[pts.length-1].model_version || '—')) + '</strong></div></div></div>' +
+    '  </div>' +
+    '</div>'
+  );
+}
+
+function renderVitals() {
+  const pts = dashState.dashboard?.points || [];
+  return (
+    renderBanners() +
+    '<div class="metric-row">' +
+    '  <div class="metric-card mc-green"><div class="metric-top"><span class="metric-label">Avg HR</span></div><div class="metric-val">' + fmtAvg(avgKey(pts, 'avg_heart_rate')) + '</div><div class="metric-unit">bpm in range</div></div>' +
+    '  <div class="metric-card mc-blue"><div class="metric-top"><span class="metric-label">Avg HRV</span></div><div class="metric-val">' + fmtAvg(avgKey(pts, 'avg_hrv')) + '</div><div class="metric-unit">ms</div></div>' +
+    '  <div class="metric-card mc-green"><div class="metric-top"><span class="metric-label">Avg SpO₂</span></div><div class="metric-val">' + fmtAvg(avgKey(pts, 'avg_spo2')) + '</div><div class="metric-unit">%</div></div>' +
+    '  <div class="metric-card mc-amber"><div class="metric-top"><span class="metric-label">Avg stress (scaled)</span></div><div class="metric-val">' + fmtAvg(avgStressPts(pts)) + '</div><div class="metric-unit">display scale</div></div>' +
+    '</div>' +
+    '<div class="grid-half"><div class="card"><div class="card-header"><div><div class="card-title">Heart rate</div></div></div><div class="chart-wrap"><canvas id="hrChart"></canvas></div></div>' +
+    '<div class="card"><div class="card-header"><div><div class="card-title">HRV</div></div></div><div class="chart-wrap"><canvas id="hrvChart"></canvas></div></div></div>' +
+    '<div class="grid-half"><div class="card"><div class="card-header"><div><div class="card-title">SpO₂</div></div></div><div class="chart-wrap"><canvas id="spo2Chart"></canvas></div></div>' +
+    '<div class="card"><div class="card-header"><div><div class="card-title">Stress</div></div></div><div class="chart-wrap"><canvas id="stressChart"></canvas></div></div></div>'
+  );
+}
+
+function fmtAvg(v) {
+  if (v == null) return '—';
+  return String(Math.round(v));
+}
+
+function avgStressPts(pts) {
+  const xs = pts.map((p) => stressDisplay(p.stress_index)).filter((x) => x != null);
+  if (!xs.length) return null;
+  return xs.reduce((a, b) => a + b, 0) / xs.length;
+}
+
+function sessionFocusBarsHtml() {
+  if (!(dashState.sessions && dashState.sessions.length)) return '<div class="metric-change">No sessions</div>';
+  return dashState.sessions
+    .map((s) => {
+      const m = s.metrics_summary || {};
+      const f = m.avg_focus_pct != null ? Math.round(m.avg_focus_pct) : 0;
+      const dt = fmtShortDate(s.started_at);
+      return (
+        '<div class="dist-row"><div class="dist-top"><span class="dist-lbl">' + esc(dt) + '</span><span class="dist-pct">' + f + '%</span></div>' +
+        '<div class="dist-bar-bg"><div class="dist-bar-fill" style="width:' + f + '%;background:#97C459"></div></div></div>'
+      );
+    })
+    .join('');
+}
+
+function renderSessions() {
+  const rows = (dashState.sessions || [])
+    .map((s) => {
+      const m = s.metrics_summary || {};
+      const foc = m.avg_focus_pct != null ? Math.round(m.avg_focus_pct) : '—';
+      const ftg = m.avg_fatigue_pct != null ? Math.round(m.avg_fatigue_pct) : '—';
+      const cfn = m.avg_confusion_pct != null ? Math.round(m.avg_confusion_pct) : '—';
+      const hr = m.avg_hr != null ? Math.round(m.avg_hr) : '—';
+      const hrv = m.avg_hrv != null ? Math.round(m.avg_hrv) : '—';
+      const score = m.avg_productivity != null ? Math.round(m.avg_productivity) : '—';
+      const x = typeof score === 'number' ? sc(score) : sc(null);
+      const dur = sessionDurationLabel(s.started_at, m.last_bucket_at);
+      const dt = fmtShortDate(s.started_at);
+      return (
+        '<tr><td>' + esc(dt) + '</td><td>' + esc(dur) + '</td><td style="font-family:DM Mono,monospace;font-size:11px">' + foc + '% / ' + ftg + '% / ' + cfn + '%</td>' +
+        '<td style="font-family:DM Mono,monospace">' + hr + ' bpm</td><td style="font-family:DM Mono,monospace">' + hrv + ' ms</td>' +
+        '<td><span class="score-pill" style="background:' + x.bg + ';color:' + x.c + '">' + score + '</span></td></tr>'
+      );
+    })
+    .join('');
+  return (
+    renderBanners() +
+    '<div class="card" style="margin-bottom:20px"><div class="card-header"><div><div class="card-title">Session history</div><div class="card-sub">From GET /api/v1/sessions</div></div></div>' +
+    '<table class="session-table"><thead><tr><th>Started</th><th>Duration</th><th>Focus / Fatigue / Confused</th><th>Avg HR</th><th>Avg HRV</th><th>Score</th></tr></thead><tbody>' +
+    (rows || '<tr><td colspan="6">No sessions</td></tr>') +
+    '</tbody></table></div>' +
+    '<div class="grid-2"><div class="card"><div class="card-header"><div><div class="card-title">Focus by session</div></div></div><div class="chart-wrap"><canvas id="focusWeekChart"></canvas></div></div>' +
+    '<div class="card"><div class="card-header"><div><div class="card-title">Focus distribution</div></div></div><div class="state-dist" style="margin-top:6px">' +
+    sessionFocusBarsHtml() +
+    '</div></div></div>'
+  );
+}
+
+function renderInsights() {
+  const pts = dashState.dashboard?.points || [];
+  let peak = '—';
+  let fat = '—';
+  if (pts.length >= 3) {
+    let best = null;
+    let bestP = -1;
+    pts.forEach((p) => {
+      const f = p.focus_percentage != null ? Number(p.focus_percentage) : null;
+      if (f != null && f > bestP) {
+        bestP = f;
+        best = p;
+      }
+    });
+    if (best) peak = new Date(best.timestamp).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    let worst = null;
+    let worstP = -1;
+    pts.forEach((p) => {
+      const f = p.fatigue_percentage != null ? Number(p.fatigue_percentage) : null;
+      if (f != null && f > worstP) {
+        worstP = f;
+        worst = p;
+      }
+    });
+    if (worst) fat = new Date(worst.timestamp).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  }
+
+  return (
+    renderBanners() +
+    '<div class="grid-3">' +
+    '  <div class="card"><div class="card-header"><div><div class="card-title">Peak focus bucket</div></div></div><div style="text-align:center;padding:8px 0 12px"><div style="font-family:Syne,sans-serif;font-size:28px;font-weight:600">' + esc(peak) + '</div><div style="font-size:11px;color:var(--text3);margin-top:4px">From current range</div></div></div>' +
+    '  <div class="card"><div class="card-header"><div><div class="card-title">Fatigue high point</div></div></div><div style="text-align:center;padding:8px 0 12px"><div style="font-family:Syne,sans-serif;font-size:28px;font-weight:600;color:var(--amber)">' + esc(fat) + '</div></div></div>' +
+    '  <div class="card"><div class="card-header"><div><div class="card-title">Buckets</div></div></div><div style="text-align:center;padding:8px 0 12px"><div style="font-family:Syne,sans-serif;font-size:28px;font-weight:600;color:var(--blue)">' + pts.length + '</div><div style="font-size:11px;color:var(--text3)">in selected session &amp; range</div></div></div>' +
+    '</div>' +
+    '<div class="card" style="margin-bottom:20px"><div class="card-header"><div><div class="card-title">Productivity by session</div></div></div><div class="chart-wrap" style="height:190px"><canvas id="weeklyProdChart"></canvas></div></div>' +
+    '<div class="grid-half"><div class="card"><div class="card-header"><div><div class="card-title">Note</div></div></div><div class="insight-row"><div class="insight-item"><div class="insight-dot" style="background:var(--text3)"></div><div class="insight-text">Insights are <strong>derived in-browser</strong> from API data. Enable OpenRouter on the backend for richer labels.</div></div></div></div>' +
+    '<div class="card"><div class="card-header"><div><div class="card-title">Focus vs productivity (sessions)</div></div></div><div class="chart-wrap"><canvas id="corrChart"></canvas></div></div></div>'
+  );
+}
+
+function mkLine(id, labels, data, color, yMin, yMax) {
+  const ctx = document.getElementById(id);
+  if (!ctx) return;
+  const o = cd();
+  const yScale = { ...o.scales.y };
+  if (yMin != null) yScale.min = yMin;
+  if (yMax != null) yScale.max = yMax;
+  charts[id] = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        label: '',
+        data,
+        borderColor: color,
+        backgroundColor: color + '18',
+        tension: 0.4,
+        pointRadius: 3,
+        pointBackgroundColor: color,
+        borderWidth: 2,
+        fill: true,
+        spanGaps: true,
+      }],
+    },
+    options: { ...o, scales: { ...o.scales, y: yScale } },
+  });
+}
+
+function initCharts(page) {
+  const pts = dashState.dashboard?.points || [];
+  const labels = pts.map((p) => new Date(p.timestamp).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }));
+  const hrData = pts.map((p) => (p.avg_heart_rate != null ? Number(p.avg_heart_rate) : null));
+  const hrvData = pts.map((p) => (p.avg_hrv != null ? Number(p.avg_hrv) : null));
+  const spo2Data = pts.map((p) => (p.avg_spo2 != null ? Number(p.avg_spo2) : null));
+  const stressD = pts.map((p) => stressDisplay(p.stress_index));
+  const d = cd();
+
+  if (page === 'overview') {
+    const ctx = document.getElementById('vitalsChart');
+    if (ctx && pts.length) {
+      charts.vitals = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels,
+          datasets: [
+            { label: 'HR', data: hrData, borderColor: '#639922', backgroundColor: 'rgba(99,153,34,0.07)', tension: 0.4, pointRadius: 3, borderWidth: 2, spanGaps: true },
+            { label: 'Stress', data: stressD, borderColor: '#BA7517', backgroundColor: 'rgba(186,117,23,0.07)', tension: 0.4, pointRadius: 3, borderWidth: 2, spanGaps: true },
+          ],
+        },
+        options: { ...d },
+      });
+    }
+    const ring = document.getElementById('prodRing');
+    const prod = lastNonNull(pts, 'productivity_score');
+    if (ring && prod != null) setTimeout(() => { ring.style.strokeDashoffset = String(283 - (283 * prod) / 100); }, 150);
+  }
+  if (page === 'vitals') {
+    mkLine('hrChart', labels, hrData, '#639922', 40, 120);
+    mkLine('hrvChart', labels, hrvData, '#378ADD', 20, 80);
+    mkLine('spo2Chart', labels, spo2Data, '#3B6D11', 90, 100);
+    mkLine('stressChart', labels, stressD, '#BA7517', 0, 100);
+  }
+  if (page === 'sessions') {
+    const ctx = document.getElementById('focusWeekChart');
+    const rev = (dashState.sessions || []).slice().reverse();
+    if (ctx && rev.length) {
+      charts.fw = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: rev.map((s) => fmtShortDate(s.started_at)),
+          datasets: [{
+            label: 'Focus %',
+            data: rev.map((s) => (s.metrics_summary && s.metrics_summary.avg_focus_pct != null ? Math.round(s.metrics_summary.avg_focus_pct) : 0)),
+            backgroundColor: '#C0DD97',
+            borderRadius: 6,
+            borderSkipped: false,
+          }],
+        },
+        options: { ...d, scales: { ...d.scales, y: { ...d.scales.y, min: 0, max: 100 } } },
+      });
+    }
+  }
+  if (page === 'insights') {
+    const revSess = (dashState.sessions || []).slice().reverse();
+    const prodData = revSess.map((s) => (s.metrics_summary && s.metrics_summary.avg_productivity != null ? Math.round(s.metrics_summary.avg_productivity) : null));
+    const lab = revSess.map((s) => fmtShortDate(s.started_at));
+    const wp = document.getElementById('weeklyProdChart');
+    if (wp && lab.length) {
+      charts.wp = new Chart(wp, {
+        type: 'line',
+        data: {
+          labels: lab,
+          datasets: [{
+            label: 'Score',
+            data: prodData,
+            borderColor: '#639922',
+            backgroundColor: 'rgba(99,153,34,0.08)',
+            tension: 0.4,
+            pointRadius: 4,
+            pointBackgroundColor: '#639922',
+            borderWidth: 2,
+            fill: true,
+            spanGaps: true,
+          }],
+        },
+        options: { ...d, scales: { ...d.scales, y: { ...d.scales.y, min: 0, max: 100 } } },
+      });
+    }
+    const scatter = (dashState.sessions || [])
+      .map((s) => {
+        const m = s.metrics_summary || {};
+        if (m.avg_productivity == null) return null;
+        return {
+          x: m.avg_focus_pct != null ? Number(m.avg_focus_pct) : 0,
+          y: Math.round(Number(m.avg_productivity)),
+        };
+      })
+      .filter(Boolean);
+    const corr = document.getElementById('corrChart');
+    if (corr && scatter.length) {
+      charts.corr = new Chart(corr, {
+        type: 'scatter',
+        data: { datasets: [{ label: 'Sessions', data: scatter, backgroundColor: '#378ADD', pointRadius: 6, pointHoverRadius: 8 }] },
+        options: {
+          ...d,
+          scales: {
+            x: { ...d.scales.x, title: { display: true, text: 'Avg focus %', color: '#A8A59E', font: { size: 10 } } },
+            y: { ...d.scales.y, min: 0, max: 100, title: { display: true, text: 'Productivity', color: '#A8A59E', font: { size: 10 } } },
+          },
+        },
+      });
+    }
+  }
+}
+
+async function setPage(page, btn) {
+  destroyCharts();
+  currentPage = page;
+  const titles = { overview: 'Overview', vitals: 'Vitals', sessions: 'Sessions', insights: 'Insights' };
+  document.getElementById('pageTitle').textContent = titles[page] || 'Overview';
+  document.querySelectorAll('.sidebar .nav-item').forEach((el) => el.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  const c = document.getElementById('pageContent');
+  await loadDashboard();
+  updateTopMeta();
+  if (page === 'overview') c.innerHTML = renderOverview();
+  else if (page === 'vitals') c.innerHTML = renderVitals();
+  else if (page === 'sessions') c.innerHTML = renderSessions();
+  else if (page === 'insights') c.innerHTML = renderInsights();
+  requestAnimationFrame(() => initCharts(page));
+}
+
+function setRange(el) {
+  document.querySelectorAll('.range-tab').forEach((t) => t.classList.remove('active'));
+  el.classList.add('active');
+  dashState.range = el.getAttribute('data-range') || 'today';
+  const nav = document.querySelector('.sidebar .nav-item.active');
+  void setPage(currentPage, nav);
+}
+
+document.getElementById('sessionSelect').addEventListener('change', (e) => {
+  dashState.sessionId = e.target.value || null;
+  if (dashState.sessionId) localStorage.setItem('cogni_session_id', dashState.sessionId);
+  const nav = document.querySelector('.sidebar .nav-item.active');
+  void setPage(currentPage, nav);
+});
+
+(async function bootstrap() {
+  dashState.error = null;
+  try {
+    await loadSessions();
+    await loadDashboard();
+  } catch (e) {
+    dashState.error = e.message || String(e);
+  }
+  updateTopMeta();
+  await setPage('overview', document.querySelector('.sidebar .nav-item.active'));
+})();
+</script>
+</body>
+</html>

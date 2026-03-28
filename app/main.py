@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     settings = get_settings()
     buffer = get_snapshot_buffer()
-    scheduler = AsyncIOScheduler(timezone="UTC")
+    scheduler: AsyncIOScheduler | None = None
 
     try:
         await init_db()
@@ -47,15 +47,20 @@ async def lifespan(app: FastAPI):
                 await session.rollback()
                 logger.exception("Scheduled minute rollup failed")
 
-    scheduler.add_job(tick, "interval", seconds=settings.dashboard_bucket_seconds, id="minute_rollup")
-    scheduler.start()
-    logger.info("Scheduler started: minute_rollup every %s seconds", settings.dashboard_bucket_seconds)
+    if settings.enable_minute_scheduler:
+        scheduler = AsyncIOScheduler(timezone="UTC")
+        scheduler.add_job(tick, "interval", seconds=settings.dashboard_bucket_seconds, id="minute_rollup")
+        scheduler.start()
+        logger.info("Scheduler started: minute_rollup every %s seconds", settings.dashboard_bucket_seconds)
+    else:
+        logger.info("Minute scheduler disabled via ENABLE_MINUTE_SCHEDULER")
     yield
-    try:
-        scheduler.shutdown(wait=False)
-        logger.info("Scheduler shutdown completed")
-    except Exception:
-        logger.exception("Scheduler shutdown failed")
+    if scheduler is not None:
+        try:
+            scheduler.shutdown(wait=False)
+            logger.info("Scheduler shutdown completed")
+        except Exception:
+            logger.exception("Scheduler shutdown failed")
 
 
 app = FastAPI(title="Cognitive State API", version="0.1.0", lifespan=lifespan)

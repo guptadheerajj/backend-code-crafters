@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     snapshot_interval_seconds: int = 30
     window_snapshots: int = 6
     dashboard_bucket_seconds: int = 60
+    enable_minute_scheduler: bool = True
     model_version: str = "rules-v1"
     openrouter_api_key: str | None = None
     openrouter_base_url: str = "https://openrouter.ai/api/v1"

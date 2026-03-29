@@ -81,8 +81,25 @@ async def create_session(
     body: SessionCreateIn,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
+    # Demo mode: keep all producers on one long-lived open session unless caller provides an explicit user id.
+    external_user_id = body.external_user_id or "desktop-cognisense"
+
+    existing_res = await db.execute(
+        select(SessionRow)
+        .where(SessionRow.external_user_id == external_user_id)
+        .where(SessionRow.ended_at.is_(None))
+        .order_by(SessionRow.started_at.desc())
+        .limit(1)
+    )
+    existing = existing_res.scalar_one_or_none()
+    if existing is not None:
+        return {
+            "id": str(existing.id),
+            "started_at": existing.started_at.isoformat() if existing.started_at else None,
+        }
+
     row = SessionRow(
-        external_user_id=body.external_user_id,
+        external_user_id=external_user_id,
         client_meta=body.client_meta or {},
     )
     db.add(row)
@@ -100,8 +117,20 @@ async def ingest_snapshot(
     settings: Settings = Depends(get_settings),
 ) -> dict:
     r = await db.execute(select(SessionRow).where(SessionRow.id == session_id))
-    if r.scalar_one_or_none() is None:
-        raise HTTPException(status_code=404, detail="session_not_found")
+    session_row = r.scalar_one_or_none()
+    if session_row is None:
+        # If client holds a stale cached session id, continue writing into the active demo session.
+        fallback_res = await db.execute(
+            select(SessionRow)
+            .where(SessionRow.external_user_id == "desktop-cognisense")
+            .where(SessionRow.ended_at.is_(None))
+            .order_by(SessionRow.started_at.desc())
+            .limit(1)
+        )
+        session_row = fallback_res.scalar_one_or_none()
+        if session_row is None:
+            raise HTTPException(status_code=404, detail="session_not_found")
+        session_id = session_row.id
 
     normalized = normalize_snapshot(payload, fallback_ts=datetime.now(timezone.utc))
     buffer.append(session_id, normalized)

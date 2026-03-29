@@ -216,6 +216,8 @@ const dashState = {
 };
 let charts = {};
 let currentPage = 'overview';
+let isAutoRefreshing = false;
+const AUTO_REFRESH_MS = 10000;
 
 function destroyCharts() {
   Object.values(charts).forEach((c) => { try { c.destroy(); } catch (e) {} });
@@ -374,6 +376,34 @@ function populateSessionSelect() {
   }
 }
 
+function pickBestSessionId(sessions) {
+  if (!Array.isArray(sessions) || !sessions.length) return null;
+
+  const ts = (v) => {
+    if (!v) return 0;
+    const t = new Date(v).getTime();
+    return Number.isFinite(t) ? t : 0;
+  };
+
+  const scored = sessions.map((s) => {
+    const m = s.metrics_summary || {};
+    return {
+      id: s.id,
+      bucketCount: Number(m.bucket_count || 0),
+      lastBucketAt: ts(m.last_bucket_at),
+      startedAt: ts(s.started_at),
+    };
+  });
+
+  scored.sort((a, b) => {
+    if (b.bucketCount !== a.bucketCount) return b.bucketCount - a.bucketCount;
+    if (b.lastBucketAt !== a.lastBucketAt) return b.lastBucketAt - a.lastBucketAt;
+    return b.startedAt - a.startedAt;
+  });
+
+  return scored[0]?.id || null;
+}
+
 async function loadSessions() {
   const data = await fetchJson('/api/v1/sessions?limit=100');
   dashState.sessions = data.sessions || [];
@@ -381,8 +411,21 @@ async function loadSessions() {
   const sel = document.getElementById('sessionSelect');
   const params = new URLSearchParams(location.search);
   const pref = params.get('session') || localStorage.getItem('cogni_session_id');
-  if (pref && dashState.sessions.some((s) => s.id === pref)) dashState.sessionId = pref;
-  else if (dashState.sessions[0]) dashState.sessionId = dashState.sessions[0].id;
+
+  dashState.sessionId = null;
+  const hasDataSession = dashState.sessions.some((s) => Number(s.metrics_summary?.bucket_count || 0) > 0);
+
+  if (pref) {
+    const prefSession = dashState.sessions.find((s) => s.id === pref);
+    if (prefSession && (!hasDataSession || Number(prefSession.metrics_summary?.bucket_count || 0) > 0)) {
+      dashState.sessionId = pref;
+    }
+  }
+
+  if (!dashState.sessionId) {
+    dashState.sessionId = pickBestSessionId(dashState.sessions);
+  }
+
   if (dashState.sessionId) {
     sel.value = dashState.sessionId;
     localStorage.setItem('cogni_session_id', dashState.sessionId);
@@ -422,6 +465,7 @@ function esc(s) {
 function renderOverview() {
   const pts = dashState.dashboard?.points || [];
   const dist = stateDistribution(pts);
+  const mgr = managerInsights(pts, dist);
   const lastHr = lastNonNull(pts, 'avg_heart_rate');
   const lastHrv = lastNonNull(pts, 'avg_hrv');
   const lastSpo2 = lastNonNull(pts, 'avg_spo2');
@@ -470,6 +514,14 @@ function renderOverview() {
     '    <div class="prod-num">' + prodShow + '</div><div class="prod-label">out of 100</div></div>' +
     '    <div class="insight-row"><div class="insight-item"><div class="insight-dot" style="background:var(--green-mid)"></div><div class="insight-text">Data from <strong>/api/v1/dashboard</strong> · model: <strong>' + esc(String(pts.length && pts[pts.length-1].model_version || '—')) + '</strong></div></div></div>' +
     '  </div>' +
+    '</div>' +
+    '<div class="card" style="margin-bottom:20px"><div class="card-header"><div><div class="card-title">Manager insights</div><div class="card-sub">Auto-generated from selected range</div></div></div>' +
+    '  <div class="insight-row">' +
+    '    <div class="insight-item"><div class="insight-dot" style="background:#97C459"></div><div class="insight-text"><strong>State profile:</strong> ' + esc(mgr.modeState) + ' · Focus ' + dist.focus + '%</div></div>' +
+    '    <div class="insight-item"><div class="insight-dot" style="background:#378ADD"></div><div class="insight-text"><strong>Productivity trend:</strong> ' + esc(String(mgr.avgProd)) + '/100 average, ' + esc(mgr.trendLabel) + '</div></div>' +
+    '    <div class="insight-item"><div class="insight-dot" style="background:#BA7517"></div><div class="insight-text"><strong>Stress load:</strong> ' + esc(String(mgr.avgStress)) + ' average in this range</div></div>' +
+    '    <div class="insight-item"><div class="insight-dot" style="background:#6B6960"></div><div class="insight-text"><strong>Session consistency:</strong> ' + esc(String(mgr.consistency)) + '%</div></div>' +
+    '  </div>' +
     '</div>'
   );
 }
@@ -500,6 +552,42 @@ function avgStressPts(pts) {
   const xs = pts.map((p) => stressDisplay(p.stress_index)).filter((x) => x != null);
   if (!xs.length) return null;
   return xs.reduce((a, b) => a + b, 0) / xs.length;
+}
+
+function mean(values) {
+  if (!values.length) return null;
+  return values.reduce((a, b) => a + b, 0) / values.length;
+}
+
+function stdDev(values) {
+  if (values.length < 2) return 0;
+  const m = mean(values);
+  const variance = values.reduce((acc, v) => acc + ((v - m) ** 2), 0) / values.length;
+  return Math.sqrt(variance);
+}
+
+function managerInsights(pts, dist) {
+  const prod = pts.map((p) => Number(p.productivity_score)).filter((v) => Number.isFinite(v));
+  const stress = pts.map((p) => Number(stressDisplay(p.stress_index))).filter((v) => Number.isFinite(v));
+  const avgProd = mean(prod);
+  const avgStress = mean(stress);
+  const prodVolatility = stdDev(prod);
+  const consistency = avgProd == null ? null : Math.max(0, Math.min(100, Math.round(100 - (prodVolatility * 2))));
+
+  const modeState = dist.focus >= Math.max(dist.fatigue, dist.confused)
+    ? 'Focus-dominant'
+    : (dist.fatigue > dist.confused ? 'Fatigue-skewed' : 'Confusion-skewed');
+  const trendLabel = avgProd == null
+    ? 'insufficient data'
+    : (avgProd >= 75 ? 'high sustained output' : avgProd >= 60 ? 'steady output' : 'needs intervention');
+
+  return {
+    avgProd: avgProd == null ? '—' : Math.round(avgProd),
+    avgStress: avgStress == null ? '—' : Math.round(avgStress),
+    consistency: consistency == null ? '—' : consistency,
+    modeState,
+    trendLabel,
+  };
 }
 
 function sessionFocusBarsHtml() {
@@ -552,8 +640,24 @@ function renderSessions() {
 
 function renderInsights() {
   const pts = dashState.dashboard?.points || [];
+  const dist = stateDistribution(pts);
+  const prodVals = pts.map((p) => Number(p.productivity_score)).filter((v) => Number.isFinite(v));
+  const focusVals = pts.map((p) => Number(p.focus_percentage)).filter((v) => Number.isFinite(v));
+  const avgProd = mean(prodVals);
+  const avgFocus = mean(focusVals);
+
   let peak = '—';
   let fat = '—';
+  let bestProdAt = '—';
+  let worstProdAt = '—';
+  let deepWorkBuckets = 0;
+
+  pts.forEach((p) => {
+    const lbl = String(p.state_label || '').toLowerCase();
+    const score = Number(p.productivity_score);
+    if (lbl === 'focus' && Number.isFinite(score) && score >= 70) deepWorkBuckets += 1;
+  });
+
   if (pts.length >= 3) {
     let best = null;
     let bestP = -1;
@@ -575,6 +679,24 @@ function renderInsights() {
       }
     });
     if (worst) fat = new Date(worst.timestamp).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+
+    let bestProd = null;
+    let bestProdV = -1;
+    let worstProd = null;
+    let worstProdV = 999;
+    pts.forEach((p) => {
+      const v = p.productivity_score != null ? Number(p.productivity_score) : null;
+      if (v != null && v > bestProdV) {
+        bestProdV = v;
+        bestProd = p;
+      }
+      if (v != null && v < worstProdV) {
+        worstProdV = v;
+        worstProd = p;
+      }
+    });
+    if (bestProd) bestProdAt = new Date(bestProd.timestamp).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    if (worstProd) worstProdAt = new Date(worstProd.timestamp).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
   }
 
   return (
@@ -584,9 +706,19 @@ function renderInsights() {
     '  <div class="card"><div class="card-header"><div><div class="card-title">Fatigue high point</div></div></div><div style="text-align:center;padding:8px 0 12px"><div style="font-family:Syne,sans-serif;font-size:28px;font-weight:600;color:var(--amber)">' + esc(fat) + '</div></div></div>' +
     '  <div class="card"><div class="card-header"><div><div class="card-title">Buckets</div></div></div><div style="text-align:center;padding:8px 0 12px"><div style="font-family:Syne,sans-serif;font-size:28px;font-weight:600;color:var(--blue)">' + pts.length + '</div><div style="font-size:11px;color:var(--text3)">in selected session &amp; range</div></div></div>' +
     '</div>' +
-    '<div class="card" style="margin-bottom:20px"><div class="card-header"><div><div class="card-title">Productivity by session</div></div></div><div class="chart-wrap" style="height:190px"><canvas id="weeklyProdChart"></canvas></div></div>' +
-    '<div class="grid-half"><div class="card"><div class="card-header"><div><div class="card-title">Note</div></div></div><div class="insight-row"><div class="insight-item"><div class="insight-dot" style="background:var(--text3)"></div><div class="insight-text">Insights are <strong>derived in-browser</strong> from API data. Enable OpenRouter on the backend for richer labels.</div></div></div></div>' +
-    '<div class="card"><div class="card-header"><div><div class="card-title">Focus vs productivity (sessions)</div></div></div><div class="chart-wrap"><canvas id="corrChart"></canvas></div></div></div>'
+    '<div class="grid-half" style="margin-bottom:20px">' +
+    '  <div class="card"><div class="card-header"><div><div class="card-title">Productivity trend (range)</div><div class="card-sub">Per bucket</div></div></div><div class="chart-wrap" style="height:220px"><canvas id="prodTrendChart"></canvas></div></div>' +
+    '  <div class="card"><div class="card-header"><div><div class="card-title">State mix</div><div class="card-sub">Distribution in selected range</div></div></div><div class="chart-wrap" style="height:220px"><canvas id="stateMixChart"></canvas></div></div>' +
+    '</div>' +
+    '<div class="grid-half">' +
+    '  <div class="card"><div class="card-header"><div><div class="card-title">Actionable summary</div></div></div><div class="insight-row">' +
+    '    <div class="insight-item"><div class="insight-dot" style="background:#639922"></div><div class="insight-text"><strong>Average productivity:</strong> ' + esc(avgProd == null ? '—' : String(Math.round(avgProd))) + '/100 · Deep-work buckets: <strong>' + deepWorkBuckets + '</strong></div></div>' +
+    '    <div class="insight-item"><div class="insight-dot" style="background:#378ADD"></div><div class="insight-text"><strong>Average focus:</strong> ' + esc(avgFocus == null ? '—' : (String(Math.round(avgFocus)) + '%')) + ' · Focus distribution: <strong>' + dist.focus + '%</strong></div></div>' +
+    '    <div class="insight-item"><div class="insight-dot" style="background:#BA7517"></div><div class="insight-text"><strong>Best vs worst productivity window:</strong> ' + esc(bestProdAt) + ' vs ' + esc(worstProdAt) + '</div></div>' +
+    '    <div class="insight-item"><div class="insight-dot" style="background:var(--text3)"></div><div class="insight-text">Insights are <strong>derived in-browser</strong> from API bucket data and update live.</div></div>' +
+    '  </div></div>' +
+    '  <div class="card"><div class="card-header"><div><div class="card-title">Focus vs productivity (buckets)</div><div class="card-sub">Each point is one bucket</div></div></div><div class="chart-wrap"><canvas id="corrChart"></canvas></div></div>' +
+    '</div>'
   );
 }
 
@@ -673,18 +805,17 @@ function initCharts(page) {
     }
   }
   if (page === 'insights') {
-    const revSess = (dashState.sessions || []).slice().reverse();
-    const prodData = revSess.map((s) => (s.metrics_summary && s.metrics_summary.avg_productivity != null ? Math.round(s.metrics_summary.avg_productivity) : null));
-    const lab = revSess.map((s) => fmtShortDate(s.started_at));
-    const wp = document.getElementById('weeklyProdChart');
-    if (wp && lab.length) {
-      charts.wp = new Chart(wp, {
+    const prodSeries = pts.map((p) => (p.productivity_score != null ? Number(p.productivity_score) : null));
+    const focusSeries = pts.map((p) => (p.focus_percentage != null ? Number(p.focus_percentage) : null));
+    const prodTrend = document.getElementById('prodTrendChart');
+    if (prodTrend && labels.length) {
+      charts.wp = new Chart(prodTrend, {
         type: 'line',
         data: {
-          labels: lab,
+          labels,
           datasets: [{
-            label: 'Score',
-            data: prodData,
+            label: 'Productivity',
+            data: prodSeries,
             borderColor: '#639922',
             backgroundColor: 'rgba(99,153,34,0.08)',
             tension: 0.4,
@@ -693,18 +824,48 @@ function initCharts(page) {
             borderWidth: 2,
             fill: true,
             spanGaps: true,
+          }, {
+            label: 'Focus %',
+            data: focusSeries,
+            borderColor: '#378ADD',
+            backgroundColor: 'rgba(55,138,221,0.08)',
+            tension: 0.35,
+            pointRadius: 3,
+            pointBackgroundColor: '#378ADD',
+            borderWidth: 2,
+            fill: false,
+            spanGaps: true,
           }],
         },
         options: { ...d, scales: { ...d.scales, y: { ...d.scales.y, min: 0, max: 100 } } },
       });
     }
-    const scatter = (dashState.sessions || [])
+
+    const mix = stateDistribution(pts);
+    const stateMix = document.getElementById('stateMixChart');
+    if (stateMix) {
+      charts.mix = new Chart(stateMix, {
+        type: 'bar',
+        data: {
+          labels: ['Focus', 'Fatigue', 'Confused'],
+          datasets: [{
+            label: 'Distribution %',
+            data: [mix.focus, mix.fatigue, mix.confused],
+            backgroundColor: ['#97C459', '#EF9F27', '#85B7EB'],
+            borderRadius: 8,
+            borderSkipped: false,
+          }],
+        },
+        options: { ...d, scales: { ...d.scales, y: { ...d.scales.y, min: 0, max: 100 } } },
+      });
+    }
+
+    const scatter = pts
       .map((s) => {
-        const m = s.metrics_summary || {};
-        if (m.avg_productivity == null) return null;
+        if (s.productivity_score == null || s.focus_percentage == null) return null;
         return {
-          x: m.avg_focus_pct != null ? Number(m.avg_focus_pct) : 0,
-          y: Math.round(Number(m.avg_productivity)),
+          x: Number(s.focus_percentage),
+          y: Math.round(Number(s.productivity_score)),
         };
       })
       .filter(Boolean);
@@ -742,6 +903,28 @@ async function setPage(page, btn) {
   requestAnimationFrame(() => initCharts(page));
 }
 
+async function refreshCurrentView() {
+  if (isAutoRefreshing) return;
+  isAutoRefreshing = true;
+  try {
+    await loadSessions();
+    await loadDashboard();
+    updateTopMeta();
+
+    const c = document.getElementById('pageContent');
+    destroyCharts();
+    if (currentPage === 'overview') c.innerHTML = renderOverview();
+    else if (currentPage === 'vitals') c.innerHTML = renderVitals();
+    else if (currentPage === 'sessions') c.innerHTML = renderSessions();
+    else c.innerHTML = renderInsights();
+    requestAnimationFrame(() => initCharts(currentPage));
+  } catch (e) {
+    dashState.fetchError = e?.message || String(e);
+  } finally {
+    isAutoRefreshing = false;
+  }
+}
+
 function setRange(el) {
   document.querySelectorAll('.range-tab').forEach((t) => t.classList.remove('active'));
   el.classList.add('active');
@@ -767,6 +950,9 @@ document.getElementById('sessionSelect').addEventListener('change', (e) => {
   }
   updateTopMeta();
   await setPage('overview', document.querySelector('.sidebar .nav-item.active'));
+  setInterval(() => {
+    void refreshCurrentView();
+  }, AUTO_REFRESH_MS);
 })();
 </script>
 </body>

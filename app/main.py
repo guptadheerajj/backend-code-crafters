@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from app.api.v1 import api_router
+import app.api.v1 as api_v1_module
 from app.config import get_settings
 from app.db import SessionLocal, init_db
 from app.deps import get_snapshot_buffer
@@ -23,6 +24,9 @@ def configure_logging() -> None:
 
 configure_logging()
 logger = logging.getLogger(__name__)
+logger.info("Loaded backend module: %s", __file__)
+logger.info("Loaded api_v1 module: %s", getattr(api_v1_module, "__file__", "unknown"))
+logger.info("api_router paths: %s", [getattr(r, "path", "") for r in getattr(api_router, "routes", [])])
 
 
 @asynccontextmanager

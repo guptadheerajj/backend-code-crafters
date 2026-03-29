@@ -53,6 +53,26 @@ class DashboardMetricRow(Base):
     __table_args__ = (UniqueConstraint("session_id", "bucket_start", name="uq_dashboard_session_bucket"),)
 
 
+class FaceScanMetricRow(Base):
+    __tablename__ = "face_scan_metrics"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    session_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False
+    )
+    scanned_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    duration_seconds: Mapped[int | None] = mapped_column(nullable=True)
+    frames_total: Mapped[int | None] = mapped_column(nullable=True)
+    frames_recognized: Mapped[int | None] = mapped_column(nullable=True)
+    recognition_ratio: Mapped[float | None] = mapped_column(Float, nullable=True)
+    avg_face_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    attention_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    fatigue_signal: Mapped[float | None] = mapped_column(Float, nullable=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, server_default="ok")
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    metrics_meta: Mapped[dict[str, Any]] = mapped_column(JSONB, server_default="{}")
+
+
 engine = create_async_engine(get_settings().database_url, echo=False)
 SessionLocal = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
 

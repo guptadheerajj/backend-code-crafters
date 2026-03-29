@@ -51,6 +51,28 @@ CREATE TABLE dashboard_metrics (
 CREATE INDEX idx_dashboard_session_bucket ON dashboard_metrics (session_id, bucket_start DESC);
 
 -- ---------------------------------------------------------------------------
+-- face_scan_metrics: periodic face/rPPG scan summaries (1 record per scan)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS face_scan_metrics (
+    id                   BIGSERIAL PRIMARY KEY,
+    session_id           UUID NOT NULL REFERENCES sessions (id) ON DELETE CASCADE,
+    scanned_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+    duration_seconds     INTEGER NULL,
+    frames_total         INTEGER NULL,
+    frames_recognized    INTEGER NULL,
+    recognition_ratio    DOUBLE PRECISION NULL,
+    avg_face_confidence  DOUBLE PRECISION NULL,
+    attention_score      DOUBLE PRECISION NULL,
+    fatigue_signal       DOUBLE PRECISION NULL,
+    status               TEXT NOT NULL DEFAULT 'ok',
+    error_message        TEXT NULL,
+    metrics_meta         JSONB NOT NULL DEFAULT '{}'
+);
+
+CREATE INDEX IF NOT EXISTS idx_face_scan_session_scanned_at
+    ON face_scan_metrics (session_id, scanned_at DESC);
+
+-- ---------------------------------------------------------------------------
 -- feedback_logs (optional): user corrections for calibration / training
 -- ---------------------------------------------------------------------------
 CREATE TABLE feedback_logs (

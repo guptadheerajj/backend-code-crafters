@@ -118,19 +118,24 @@ async def ingest_snapshot(
 ) -> dict:
     r = await db.execute(select(SessionRow).where(SessionRow.id == session_id))
     session_row = r.scalar_one_or_none()
-    if session_row is None:
-        # If client holds a stale cached session id, continue writing into the active demo session.
-        fallback_res = await db.execute(
+
+    # Always converge to the latest open session for this user
+    user_id = session_row.external_user_id if session_row else "desktop-cognisense"
+    if user_id:
+        latest_res = await db.execute(
             select(SessionRow)
-            .where(SessionRow.external_user_id == "desktop-cognisense")
+            .where(SessionRow.external_user_id == user_id)
             .where(SessionRow.ended_at.is_(None))
             .order_by(SessionRow.started_at.desc())
             .limit(1)
         )
-        session_row = fallback_res.scalar_one_or_none()
-        if session_row is None:
-            raise HTTPException(status_code=404, detail="session_not_found")
-        session_id = session_row.id
+        latest = latest_res.scalar_one_or_none()
+        if latest is not None:
+            session_row = latest
+            session_id = latest.id
+
+    if session_row is None:
+        raise HTTPException(status_code=404, detail="session_not_found")
 
     normalized = normalize_snapshot(payload, fallback_ts=datetime.now(timezone.utc))
     buffer.append(session_id, normalized)

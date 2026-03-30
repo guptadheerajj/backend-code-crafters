@@ -106,41 +106,57 @@ async def _merge_latest_face_scan(
 
     mm = ((row.metrics_meta or {}).get("missing_metrics") or {})
 
-    def pick(current, *candidates):
-        if current is not None:
-            return current
-        for c in candidates:
+    def prefer_scan(current, *scan_candidates):
+        for c in scan_candidates:
             if c is not None:
                 return c
-        return None
+        return current
 
     stress_from_mm = _safe_float(mm.get("stress_index"))
     fatigue_from_mm = _safe_float(mm.get("fatigue_index"))
+    fatigue_from_scan = _percent_to_ratio(row.fatigue_signal)
 
     if stress_from_mm is not None and stress_from_mm > 1.0:
         stress_from_mm = _clamp(stress_from_mm / 100.0, 0.0, 1.0)
     if fatigue_from_mm is not None and fatigue_from_mm > 1.0:
         fatigue_from_mm = _clamp(fatigue_from_mm / 100.0, 0.0, 1.0)
 
+    scan_focus_pct = prefer_scan(
+        features.focus_percentage,
+        _safe_float(mm.get("focus_percentage")),
+        (_percent_to_ratio(row.attention_score) or 0.0) * 100.0,
+    )
+    scan_fatigue_pct = prefer_scan(
+        features.fatigue_percentage,
+        _safe_float(mm.get("fatigue_percentage")),
+        (_percent_to_ratio(row.fatigue_signal) or 0.0) * 100.0,
+    )
+    scan_confused_pct = prefer_scan(features.confusion_percentage, _safe_float(mm.get("confusion_percentage")))
+
+    scan_state_label = features.state_label
+    winner = max(
+        (
+            ("focus", scan_focus_pct if scan_focus_pct is not None else -1.0),
+            ("fatigue", scan_fatigue_pct if scan_fatigue_pct is not None else -1.0),
+            ("confused", scan_confused_pct if scan_confused_pct is not None else -1.0),
+        ),
+        key=lambda item: item[1],
+    )
+    if winner[1] >= 0:
+        scan_state_label = winner[0]
+
     merged = features.model_copy(
         update={
-            "avg_heart_rate": pick(features.avg_heart_rate, _safe_float(mm.get("avg_heart_rate"))),
-            "avg_hrv": pick(features.avg_hrv, _safe_float(mm.get("avg_hrv"))),
-            "avg_spo2": pick(features.avg_spo2, _safe_float(mm.get("avg_spo2"))),
-            "stress_index": pick(features.stress_index, stress_from_mm),
-            "fatigue_index": pick(features.fatigue_index, fatigue_from_mm),
-            "focus_percentage": pick(
-                features.focus_percentage,
-                _safe_float(mm.get("focus_percentage")),
-                (_percent_to_ratio(row.attention_score) or 0.0) * 100.0,
-            ),
-            "fatigue_percentage": pick(
-                features.fatigue_percentage,
-                _safe_float(mm.get("fatigue_percentage")),
-                (_percent_to_ratio(row.fatigue_signal) or 0.0) * 100.0,
-            ),
-            "confusion_percentage": pick(features.confusion_percentage, _safe_float(mm.get("confusion_percentage"))),
-            "productivity_score": pick(features.productivity_score, _safe_float(mm.get("productivity_score"))),
+            "avg_heart_rate": prefer_scan(features.avg_heart_rate, _safe_float(mm.get("avg_heart_rate"))),
+            "avg_hrv": prefer_scan(features.avg_hrv, _safe_float(mm.get("avg_hrv"))),
+            "avg_spo2": prefer_scan(features.avg_spo2, _safe_float(mm.get("avg_spo2"))),
+            "stress_index": prefer_scan(features.stress_index, stress_from_mm, fatigue_from_scan),
+            "fatigue_index": prefer_scan(features.fatigue_index, fatigue_from_mm, fatigue_from_scan),
+            "focus_percentage": scan_focus_pct,
+            "fatigue_percentage": scan_fatigue_pct,
+            "confusion_percentage": scan_confused_pct,
+            "productivity_score": prefer_scan(features.productivity_score, _safe_float(mm.get("productivity_score"))),
+            "state_label": scan_state_label,
         }
     )
 

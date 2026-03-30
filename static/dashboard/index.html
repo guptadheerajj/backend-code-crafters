@@ -93,7 +93,7 @@
   .card-action:hover { background: var(--surface2); }
 
   .state-timeline { display: flex; gap: 3px; height: 30px; align-items: stretch; }
-  .tl-seg { border-radius: 3px; cursor: pointer; transition: opacity 0.15s; min-width: 4px; }
+  .tl-seg { border-radius: 3px; cursor: pointer; transition: opacity 0.15s; min-width: 0; }
   .tl-seg:hover { opacity: 0.7; }
   .tl-focus { background: #C0DD97; } .tl-fatigue { background: #FAC775; }
   .tl-confused { background: #B5D4F4; } .tl-idle { background: var(--surface2); }
@@ -276,6 +276,16 @@ function tlClass(label) {
   if (t === 'fatigue') return 'fatigue';
   if (t === 'confused') return 'confused';
   return 'idle';
+}
+
+function sampleTimelinePoints(points, maxSegments = 72) {
+  if (!Array.isArray(points) || points.length <= maxSegments) return points || [];
+  const sampled = [];
+  const step = (points.length - 1) / (maxSegments - 1);
+  for (let i = 0; i < maxSegments; i++) {
+    sampled.push(points[Math.round(i * step)]);
+  }
+  return sampled;
 }
 
 function rangeToFromTo(range) {
@@ -464,6 +474,7 @@ function esc(s) {
 
 function renderOverview() {
   const pts = dashState.dashboard?.points || [];
+  const timelinePts = sampleTimelinePoints(pts, 72);
   const dist = stateDistribution(pts);
   const mgr = managerInsights(pts, dist);
   const lastHr = lastNonNull(pts, 'avg_heart_rate');
@@ -482,8 +493,8 @@ function renderOverview() {
   const stShow = lastStress != null ? lastStress : '—';
   const prodShow = prod != null ? Math.round(prod) : '—';
 
-  const tl = pts.length
-    ? pts.map((p) => '<div class="tl-seg tl-' + tlClass(p.state_label) + '" style="flex:1" title="' + esc(String(p.state_label || '')) + ' @ ' + esc(fmtShortDate(p.timestamp)) + '"></div>').join('')
+  const tl = timelinePts.length
+    ? timelinePts.map((p) => '<div class="tl-seg tl-' + tlClass(p.state_label) + '" style="flex:1" title="' + esc(String(p.state_label || '')) + ' @ ' + esc(fmtShortDate(p.timestamp)) + '"></div>').join('')
     : '<div class="metric-change">No minute buckets in this time range.</div>';
 
   return (
@@ -750,18 +761,91 @@ function mkLine(id, labels, data, color, yMin, yMax) {
   });
 }
 
+function avgFinite(values) {
+  const xs = values.filter((v) => Number.isFinite(v));
+  if (!xs.length) return null;
+  return xs.reduce((a, b) => a + b, 0) / xs.length;
+}
+
+function rangeBucketDate(d, range) {
+  const x = new Date(d);
+  if (range === 'today') {
+    x.setSeconds(0, 0);
+    return x;
+  }
+  if (range === 'week') {
+    x.setMinutes(0, 0, 0);
+    return x;
+  }
+  x.setHours(0, 0, 0, 0);
+  return x;
+}
+
+function formatRangeLabel(d, range) {
+  if (range === 'today') {
+    return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  }
+  if (range === 'week') {
+    return d.toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric' });
+  }
+  return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+}
+
+function aggregatePointsForRange(points, range) {
+  if (!Array.isArray(points) || !points.length || range === 'today') return points;
+
+  const buckets = new Map();
+  for (const p of points) {
+    const ts = new Date(p.timestamp);
+    if (Number.isNaN(ts.getTime())) continue;
+    const b = rangeBucketDate(ts, range);
+    const key = b.toISOString();
+    if (!buckets.has(key)) {
+      buckets.set(key, {
+        ts: b,
+        hr: [],
+        hrv: [],
+        spo2: [],
+        stress: [],
+        prod: [],
+        focus: [],
+      });
+    }
+    const row = buckets.get(key);
+    row.hr.push(p.avg_heart_rate != null ? Number(p.avg_heart_rate) : NaN);
+    row.hrv.push(p.avg_hrv != null ? Number(p.avg_hrv) : NaN);
+    row.spo2.push(p.avg_spo2 != null ? Number(p.avg_spo2) : NaN);
+    row.stress.push(stressDisplay(p.stress_index));
+    row.prod.push(p.productivity_score != null ? Number(p.productivity_score) : NaN);
+    row.focus.push(p.focus_percentage != null ? Number(p.focus_percentage) : NaN);
+  }
+
+  return Array.from(buckets.values())
+    .sort((a, b) => a.ts.getTime() - b.ts.getTime())
+    .map((r) => ({
+      timestamp: r.ts.toISOString(),
+      avg_heart_rate: avgFinite(r.hr),
+      avg_hrv: avgFinite(r.hrv),
+      avg_spo2: avgFinite(r.spo2),
+      stress_index: avgFinite(r.stress),
+      productivity_score: avgFinite(r.prod),
+      focus_percentage: avgFinite(r.focus),
+    }));
+}
+
 function initCharts(page) {
   const pts = dashState.dashboard?.points || [];
-  const labels = pts.map((p) => new Date(p.timestamp).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }));
-  const hrData = pts.map((p) => (p.avg_heart_rate != null ? Number(p.avg_heart_rate) : null));
-  const hrvData = pts.map((p) => (p.avg_hrv != null ? Number(p.avg_hrv) : null));
-  const spo2Data = pts.map((p) => (p.avg_spo2 != null ? Number(p.avg_spo2) : null));
-  const stressD = pts.map((p) => stressDisplay(p.stress_index));
+  const chartPts = aggregatePointsForRange(pts, dashState.range);
+  const labels = chartPts.map((p) => formatRangeLabel(new Date(p.timestamp), dashState.range));
+  const hrData = chartPts.map((p) => (p.avg_heart_rate != null ? Number(p.avg_heart_rate) : null));
+  const hrvData = chartPts.map((p) => (p.avg_hrv != null ? Number(p.avg_hrv) : null));
+  const spo2Data = chartPts.map((p) => (p.avg_spo2 != null ? Number(p.avg_spo2) : null));
+  const stressD = chartPts.map((p) => (p.stress_index != null ? Number(p.stress_index) : null));
   const d = cd();
 
   if (page === 'overview') {
     const ctx = document.getElementById('vitalsChart');
-    if (ctx && pts.length) {
+    if (ctx && chartPts.length) {
       charts.vitals = new Chart(ctx, {
         type: 'line',
         data: {
@@ -805,14 +889,16 @@ function initCharts(page) {
     }
   }
   if (page === 'insights') {
-    const prodSeries = pts.map((p) => (p.productivity_score != null ? Number(p.productivity_score) : null));
-    const focusSeries = pts.map((p) => (p.focus_percentage != null ? Number(p.focus_percentage) : null));
+    const insightPts = aggregatePointsForRange(pts, dashState.range);
+    const insightLabels = insightPts.map((p) => formatRangeLabel(new Date(p.timestamp), dashState.range));
+    const prodSeries = insightPts.map((p) => (p.productivity_score != null ? Number(p.productivity_score) : null));
+    const focusSeries = insightPts.map((p) => (p.focus_percentage != null ? Number(p.focus_percentage) : null));
     const prodTrend = document.getElementById('prodTrendChart');
-    if (prodTrend && labels.length) {
+    if (prodTrend && insightLabels.length) {
       charts.wp = new Chart(prodTrend, {
         type: 'line',
         data: {
-          labels,
+          labels: insightLabels,
           datasets: [{
             label: 'Productivity',
             data: prodSeries,

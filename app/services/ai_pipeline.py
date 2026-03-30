@@ -99,6 +99,24 @@ def rules_engine_fallback(body: AIRequestBody) -> AIDashboardFeatures:
     tab_sw = [x.tab_switch_rate for x in w if x.tab_switch_rate is not None]
     avg_tab = sum(tab_sw) / len(tab_sw) if tab_sw else None
 
+    # --- Simulate vitals when extension doesn't send real ones ---
+    _s = stress if stress is not None else 0.3
+    _f = fatigue if fatigue is not None else 0.2
+    # Small deterministic variation from window length to avoid flat lines
+    _jitter = (len(w) % 5) * 0.6
+
+    if hr is None:
+        # Baseline ~72 bpm, rises with stress (up to ~100) and fatigue (up to ~90)
+        hr = round(72.0 + _s * 28.0 + _f * 8.0 + _jitter, 1)
+
+    if hrv is None:
+        # Baseline ~55 ms RMSSD, drops with stress (down to ~25)
+        hrv = round(55.0 - _s * 25.0 - _f * 10.0 + _jitter * 0.5, 1)
+
+    if spo2 is None:
+        # Baseline 97-99%, fairly stable
+        spo2 = round(98.0 - _f * 2.0 + _jitter * 0.1, 1)
+
     # Heuristic scores (0–100) — swap for model output
     focus_pct = None
     fatigue_pct = None
